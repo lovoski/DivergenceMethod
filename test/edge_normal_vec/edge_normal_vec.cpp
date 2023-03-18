@@ -31,7 +31,7 @@ inline Vector3d get_perp_vec_of_i(Vector3d &perp, Vector3d &i) {
 
 struct perp_vec_data {
   Vector3d perp_vec;
-  int ei; // find edge length through edge index
+  int ei, fi; // find edge length through edge index
 };
 
 // only consider a closed mesh
@@ -59,6 +59,13 @@ int main(int argc, char *argv[]) {
         nv = model.Edge(ne[i].first).indexOfLeftVert;
         nnv = model.Edge(ne[(i+1)%ne.size()].first).indexOfLeftVert;
       }
+      int fi1 = model.Edge(model.GetEdgeIndexFromTwoVertices(vi, nv)).indexOfFrontFace;
+      int fi2 = model.Edge(model.GetEdgeIndexFromTwoVertices(vi, nnv)).indexOfFrontFace;
+      if (fi1 == -1 || fi2 == -1) continue; // there is no edge between nv and nnv
+      int fi3 = model.Edge(model.GetEdgeIndexFromTwoVertices(nv, vi)).indexOfFrontFace;
+      int actual_fi;
+      if (fi2 == fi3) actual_fi = fi2;
+      else actual_fi = fi1;
       auto &&vert_i = model.Vert(vi);
       auto &&vert_j = model.Vert(nv);
       auto &&vert_k = model.Vert(nnv);
@@ -66,9 +73,11 @@ int main(int argc, char *argv[]) {
       Vector3d v_j {vert_j.x, vert_j.y, vert_j.z};
       Vector3d v_k {vert_k.x, vert_k.y, vert_k.z};
       model.GetEdgeIndexFromTwoVertices(nv, nnv);
-      perp_vec_base[vi].push_back({get_perp_vec_of_i(perp_point_of_jk(v_i, v_j, v_k), v_i), model.GetEdgeIndexFromTwoVertices(nv, nnv)});
+      perp_vec_base[vi].push_back({get_perp_vec_of_i(perp_point_of_jk(v_i, v_j, v_k), v_i), model.GetEdgeIndexFromTwoVertices(nv, nnv), actual_fi});
     }
   }
+  // int fi = model.Edge(model.GetEdgeIndexFromTwoVertices(554, 8)).indexOfFrontFace;
+  // cout << "face:" << fi << endl;
   // fstream out;
   // remove("line.txt");
   // out.open("line.txt", ios::out | ios::app);
@@ -81,5 +90,14 @@ int main(int argc, char *argv[]) {
   // }
   // out.flush();
   // out.close();
+  // auto res = perp_vec_base[0];
+  // for (auto e : res) {
+  //   // cout << "vector:" << endl;
+  //   // cout << e.perp_vec << endl;
+  //   auto left_index = model.Edge(e.ei).indexOfLeftVert;
+  //   auto right_index = model.Edge(e.ei).indexOfRightVert;
+  //   cout << "vert:" << left_index << "," << right_index << endl;
+  //   cout << "face:" << e.fi << endl;
+  // }
   return 0;
 }
