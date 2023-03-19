@@ -59,13 +59,9 @@ int main(int argc, char *argv[]) {
         nv = model.Edge(ne[i].first).indexOfLeftVert;
         nnv = model.Edge(ne[(i+1)%ne.size()].first).indexOfLeftVert;
       }
-      int fi1 = model.Edge(model.GetEdgeIndexFromTwoVertices(vi, nv)).indexOfFrontFace;
-      int fi2 = model.Edge(model.GetEdgeIndexFromTwoVertices(vi, nnv)).indexOfFrontFace;
-      if (fi1 == -1 || fi2 == -1) continue; // there is no edge between nv and nnv
-      int fi3 = model.Edge(model.GetEdgeIndexFromTwoVertices(nv, vi)).indexOfFrontFace;
-      int actual_fi;
-      if (fi2 == fi3) actual_fi = fi2;
-      else actual_fi = fi1;
+      int actual_fi = model.Edge(model.GetEdgeIndexFromTwoVertices(vi, nv)).indexOfFrontFace;
+      // no edge between nv and nnv
+      if (actual_fi == -1) continue;
       auto &&vert_i = model.Vert(vi);
       auto &&vert_j = model.Vert(nv);
       auto &&vert_k = model.Vert(nnv);
@@ -90,14 +86,16 @@ int main(int argc, char *argv[]) {
   // }
   // out.flush();
   // out.close();
-  // auto res = perp_vec_base[0];
-  // for (auto e : res) {
-  //   // cout << "vector:" << endl;
-  //   // cout << e.perp_vec << endl;
-  //   auto left_index = model.Edge(e.ei).indexOfLeftVert;
-  //   auto right_index = model.Edge(e.ei).indexOfRightVert;
-  //   cout << "vert:" << left_index << "," << right_index << endl;
-  //   cout << "face:" << e.fi << endl;
-  // }
-  return 0;
+//   auto res = perp_vec_base[0];
+//   for (auto e : res) {
+//     // cout << "vector:" << endl;
+//     // cout << e.perp_vec << endl;
+//     auto left_index = model.Edge(e.ei).indexOfLeftVert;
+//     auto right_index = model.Edge(e.ei).indexOfRightVert;
+//     cout << "vert:" << left_index << "," << right_index << endl;
+//     cout << "face:" << e.fi << endl;
+//   }
+//   auto tmp_res = model.Neigh(0);
+//   cout << tmp_res.size() << endl;
+//   return 0;
 }
