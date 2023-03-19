@@ -96,8 +96,8 @@ VectorXd normalized_gradient(VectorXd &u) {
 void calculate_divegence() {}
 
 int main(int argc, char *argv[]) {
-  if (argc < 3) {
-    cout << "<bin> <filename> <t>" << endl;
+  if (argc < 2) {
+    cout << "<bin> <filename>" << endl;
     exit(-1);
   }
   readOBJ(argv[1], V, F);
@@ -110,7 +110,8 @@ int main(int argc, char *argv[]) {
 
   cout << "start calculation" << endl;
 
-  VectorXd &&u = calculate_scalar_value(atof(argv[2]), 0);
+  const double t = pow(avg_edge_length(V, F), 2);
+  VectorXd &&u = calculate_scalar_value(t, 0);
 
   cout << "scalar value calculation finished" << endl;
 
