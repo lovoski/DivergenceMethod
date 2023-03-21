@@ -1,6 +1,9 @@
 #include <iostream>
 #include <cstdio>
 #include <fstream>
+#include <vector>
+#include <map>
+#include <set>
 #include <string>
 #include <igl/grad.h>
 #include <igl/cotmatrix.h>
@@ -93,11 +96,19 @@ VectorXd normalized_gradient(VectorXd &u) {
   }
   return g;
 }
-void calculate_divegence() {}
+
+inline double variance(VectorXd &vec) {
+  const double mean = vec.mean();
+  double var = 0;
+  for (int i = 0; i < vec.rows(); ++i) {
+    var += pow(vec[i]-mean, 2);
+  }
+  return var / vec.rows();
+}
 
 int main(int argc, char *argv[]) {
-  if (argc < 2) {
-    cout << "<bin> <filename>" << endl;
+  if (argc < 3) {
+    cout << "<bin> <filename> <sigma_prefix>" << endl;
     exit(-1);
   }
   readOBJ(argv[1], V, F);
@@ -176,15 +187,51 @@ int main(int argc, char *argv[]) {
     div_u[i] /= divider;
   }
 
-  // fstream out;
-  // remove("out.txt");
-  // out.open("out.txt", ios::app | ios::out);
-  // for (int i = 0; i < div_u.rows(); ++i) {
-  //   out << div_u[i] << "\n";
-  // }
-  // out.flush();
-  // out.close();
+  // write div_u for data analysis
+  fstream data_out;
+  data_out.open("data.txt", ios::app | ios::out);
+  for (int i = 0; i < V.rows(); ++i) {
+    data_out << div_u[i] << "\n";
+  }
+  data_out.flush();
+  data_out.close();
 
+  // calculate the mean and variance of div_u
+  const double mu = div_u.mean();
+  const double var = variance(div_u);
+  const double filter = mu-atoi(argv[2])*sqrt(var);
+  set<int> base_collection;
+  cout << "mean:" << mu << "\nvar:" << var << endl;
+  // collect the vertices whose value is less than mu-3*sigma
+  for (int i = 0; i < div_u.rows(); ++i) {
+    if (div_u[i] < filter) {
+      base_collection.insert(i);
+      div_u[i] = 0;
+    } else div_u[i] = 0.5;
+  }
+
+  // abandon sigle point condition
+  for (auto vert : base_collection) {
+    auto neigh = model.Neigh(vert);
+    bool alone_in_neigh = true;
+    for (auto neigh_edge : neigh) {
+      bool is_left = (vert == model.Edge(neigh[0].first).indexOfLeftVert);
+      int adjacent_vert;
+      if (is_left) {
+        adjacent_vert = model.Edge(neigh_edge.first).indexOfRightVert;
+      } else {
+        adjacent_vert = model.Edge(neigh_edge.first).indexOfLeftVert;
+      }
+      auto adjacent_in_collection = base_collection.find(adjacent_vert);
+      if (adjacent_in_collection != base_collection.end()) {
+        alone_in_neigh = false;
+        break;
+      }
+    }
+    if (alone_in_neigh) div_u[vert] = 0.5;
+  }
+
+  // write output model files
   fstream obj_out, mtl_out;
   obj_out.open("divergence_method.obj", ios::app | ios::out);
   mtl_out.open("divergence_method.mtl", ios::app | ios::out);
@@ -206,29 +253,5 @@ int main(int argc, char *argv[]) {
   obj_out.close();
   mtl_out.close();
 
-  // visualize the data
-  // opengl::glfw::Viewer viewer;
-  // viewer.data().set_mesh(V, F);
-
-  // // barycenter is a face_num * 3 matrix
-  // MatrixXd BC;
-  // barycenter(V, F, BC);
-  // MatrixXd T = MatrixXd::Zero(BC.rows(), BC.cols());
-  // for (int i = 0; i < F.rows(); ++i) {
-  //   T(i, 0) = g[i+0*F.rows()];
-  //   T(i, 1) = g[i+1*F.rows()];
-  //   T(i, 2) = g[i+2*F.rows()];
-  // }
-  // const double length = avg_edge_length(V, F)*0.5;
-  // // write each gradeint vector to a file
-  // fstream out;
-  // out.open("out.txt", ios::out | ios::app);
-  // for (int i = 0; i < F.rows(); ++i) {
-  //   // write format: start_x,start_y,start_z,end_x,end_y,end_z
-  //   out << BC(i, 0) << "," << BC(i, 1) << "," << BC(i, 2) << "," <<
-  //      BC(i, 0)+T(i, 0) << "," << BC(i, 1)+T(i, 1) << "," << BC(i, 2)+T(i, 2) << "\n";
-  // }
-  // out.flush();
-  // out.close();
   return 0;
 }
