@@ -107,8 +107,8 @@ inline double variance(VectorXd &vec) {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc < 3) {
-    cout << "<bin> <filename> <sigma_prefix>" << endl;
+  if (argc < 2) {
+    cout << "<bin> <filename>" << endl;
     exit(-1);
   }
   readOBJ(argv[1], V, F);
@@ -199,37 +199,65 @@ int main(int argc, char *argv[]) {
   // calculate the mean and variance of div_u
   const double mu = div_u.mean();
   const double var = variance(div_u);
-  const double filter = mu-atoi(argv[2])*sqrt(var);
+  const double filter = mu-3*sqrt(var);
   set<int> base_collection;
   cout << "mean:" << mu << "\nvar:" << var << endl;
   // collect the vertices whose value is less than mu-3*sigma
-  for (int i = 0; i < div_u.rows(); ++i) {
-    if (div_u[i] < filter) {
-      base_collection.insert(i);
-      div_u[i] = 0;
-    } else div_u[i] = 0.5;
+  // for (int i = 0; i < div_u.rows(); ++i) {
+  //   if (div_u[i] < filter) {
+  //     base_collection.insert(i);
+  //     div_u[i] = 0;
+  //   } else div_u[i] = 0.5;
+  // }
+  for (int i = 0; i < V.rows(); ++i) {
+    if (div_u[i] < filter) base_collection.insert(i);
   }
 
+  // // for each point in base_collection
+  // // find the vertex with cloest divergence to it from its neighbors
+  // const double filter_2 = mu;
+  // const set<int> iterate_collection = base_collection;
+  // for (auto &&vert : iterate_collection) {
+  //   auto neigh = model.Neigh(vert);
+  //   for (auto &&neigh_edge : neigh) {
+  //     bool is_left = (model.Edge(neigh_edge.first).indexOfLeftVert == vert);
+  //     int neigh_vert;
+  //     if (is_left) {
+  //       neigh_vert = model.Edge(neigh_edge.first).indexOfRightVert;
+  //     } else {
+  //       neigh_vert = model.Edge(neigh_edge.first).indexOfLeftVert;
+  //     }
+  //     if (div_u[neigh_vert] < filter_2) {
+  //       base_collection.insert(neigh_vert);
+  //     }
+  //   }
+  // }
+
+  // VectorXd vt = VectorXd::Zero(V.rows());
+  // for (auto &&ele : base_collection) {
+  //   vt[ele] = 1;
+  // }
+
   // abandon sigle point condition
-  for (auto vert : base_collection) {
-    auto neigh = model.Neigh(vert);
-    bool alone_in_neigh = true;
-    for (auto neigh_edge : neigh) {
-      bool is_left = (vert == model.Edge(neigh[0].first).indexOfLeftVert);
-      int adjacent_vert;
-      if (is_left) {
-        adjacent_vert = model.Edge(neigh_edge.first).indexOfRightVert;
-      } else {
-        adjacent_vert = model.Edge(neigh_edge.first).indexOfLeftVert;
-      }
-      auto adjacent_in_collection = base_collection.find(adjacent_vert);
-      if (adjacent_in_collection != base_collection.end()) {
-        alone_in_neigh = false;
-        break;
-      }
-    }
-    if (alone_in_neigh) div_u[vert] = 0.5;
-  }
+  // for (auto vert : base_collection) {
+  //   auto neigh = model.Neigh(vert);
+  //   bool alone_in_neigh = true;
+  //   for (auto neigh_edge : neigh) {
+  //     bool is_left = (vert == model.Edge(neigh[0].first).indexOfLeftVert);
+  //     int adjacent_vert;
+  //     if (is_left) {
+  //       adjacent_vert = model.Edge(neigh_edge.first).indexOfRightVert;
+  //     } else {
+  //       adjacent_vert = model.Edge(neigh_edge.first).indexOfLeftVert;
+  //     }
+  //     auto adjacent_in_collection = base_collection.find(adjacent_vert);
+  //     if (adjacent_in_collection != base_collection.end()) {
+  //       alone_in_neigh = false;
+  //       break;
+  //     }
+  //   }
+  //   if (alone_in_neigh) div_u[vert] = 0.5;
+  // }
 
   // write output model files
   fstream obj_out, mtl_out;

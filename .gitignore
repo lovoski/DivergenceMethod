@@ -3,3 +3,9 @@ build/
 
 # IDE configuration
 /.vscode
+
+# ignore python generated image 
+# and data to display
+# keep python source file
+/python/*
+!/python/*.py
