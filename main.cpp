@@ -4,6 +4,7 @@
 #include <vector>
 #include <map>
 #include <set>
+#include <functional>
 #include <string>
 #include <igl/grad.h>
 #include <igl/cotmatrix.h>
@@ -97,42 +98,7 @@ VectorXd normalized_gradient(VectorXd &u) {
   return g;
 }
 
-inline double variance(VectorXd &vec) {
-  const double mean = vec.mean();
-  double var = 0;
-  for (int i = 0; i < vec.rows(); ++i) {
-    var += pow(vec[i]-mean, 2);
-  }
-  return var / vec.rows();
-}
-
-int main(int argc, char *argv[]) {
-  if (argc < 2) {
-    cout << "<bin> <filename>" << endl;
-    exit(-1);
-  }
-  readOBJ(argv[1], V, F);
-  // laplace cotan matrix
-  cotmatrix(V, F, L);
-  // mass mastrix for each triangle
-  massmatrix(V, F, MASSMATRIX_TYPE_DEFAULT, M);
-  // gradient operator
-  grad(V, F, G);
-
-  cout << "start calculation" << endl;
-
-  const double t = pow(avg_edge_length(V, F), 2);
-  VectorXd &&u = calculate_scalar_value(t, 0);
-
-  cout << "scalar value calculation finished" << endl;
-
-  VectorXd &&g = normalized_gradient(u);
-
-  cout << "gradient normalization finished" << endl;
-
-  Model3D::CRichModel model(argv[1]);
-  model.LoadModel();
-  // model.PrintInfo(cout);
+VectorXd calculate_divergence(VectorXd &g, const Model3D::CRichModel &model) {
   // calculate perpendicular point for each edge in every triangle
   vector<vector<perp_vec_data>> perp_vec_base;
   perp_vec_base.resize(model.GetNumOfVerts());
@@ -163,6 +129,8 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  cout << "edge normal calculation finished" << endl;
+
   // compute divergence
   VectorXd div_u = VectorXd::Zero(model.GetNumOfVerts());
   for (int vi = 0; vi < model.GetNumOfVerts(); ++vi) {
@@ -172,9 +140,60 @@ int main(int argc, char *argv[]) {
       div_u[vi] += 0.5 * model.Edge(val.ei).length * ux.dot(val.perp_vec);
     }
   }
+  return div_u;
+}
 
-  cout << "calculation finished" << endl;
+inline double variance(VectorXd &vec) {
+  const double mean = vec.mean();
+  double var = 0;
+  for (int i = 0; i < vec.rows(); ++i) {
+    var += pow(vec[i]-mean, 2);
+  }
+  return var / vec.rows();
+}
 
+void query_neighor_vertices(Model3D::CRichModel &model, const int root, function<void(int)> &&f) {
+  auto &&neigh = model.Neigh(root);
+  for (auto &&neigh_edge : neigh) {
+    bool is_left = (model.Edge(neigh_edge.first).indexOfLeftVert == root);
+    int neigh_vert;
+    if (is_left) neigh_vert = model.Edge(neigh_edge.first).indexOfRightVert;
+    else neigh_vert = model.Edge(neigh_edge.first).indexOfLeftVert;
+    f(neigh_vert);
+  }
+}
+
+int main(int argc, char *argv[]) {
+  if (argc < 2) {
+    cout << "<bin> <filename>" << endl;
+    exit(-1);
+  }
+  readOBJ(argv[1], V, F);
+  // laplace cotan matrix
+  cotmatrix(V, F, L);
+  // mass mastrix for each triangle
+  massmatrix(V, F, MASSMATRIX_TYPE_DEFAULT, M);
+  // gradient operator
+  grad(V, F, G);
+
+  cout << "start calculation" << endl;
+
+  const double t = pow(avg_edge_length(V, F), 2);
+  VectorXd &&u = calculate_scalar_value(t, 0);
+
+  cout << "scalar value calculation finished" << endl;
+
+  VectorXd &&g = normalized_gradient(u);
+
+  cout << "gradient normalization finished" << endl;
+
+  Model3D::CRichModel model(argv[1]);
+  model.LoadModel();
+  VectorXd &&div_u = calculate_divergence(g, model);
+
+  cout << "divergence calculation finished" << endl;
+
+  // unify the divergence
   double min = div_u[0], max = div_u[0];
   for (int i = 0; i < div_u.rows(); ++i) {
     min = min < div_u[i]?min:div_u[i];
@@ -189,6 +208,7 @@ int main(int argc, char *argv[]) {
 
   // write div_u for data analysis
   fstream data_out;
+  remove("data.txt");
   data_out.open("data.txt", ios::app | ios::out);
   for (int i = 0; i < V.rows(); ++i) {
     data_out << div_u[i] << "\n";
@@ -202,65 +222,59 @@ int main(int argc, char *argv[]) {
   const double filter = mu-3*sqrt(var);
   set<int> base_collection;
   cout << "mean:" << mu << "\nvar:" << var << endl;
-  // collect the vertices whose value is less than mu-3*sigma
-  // for (int i = 0; i < div_u.rows(); ++i) {
-  //   if (div_u[i] < filter) {
-  //     base_collection.insert(i);
-  //     div_u[i] = 0;
-  //   } else div_u[i] = 0.5;
-  // }
+  // filter the vertices through mean and divergence
   for (int i = 0; i < V.rows(); ++i) {
-    if (div_u[i] < filter) base_collection.insert(i);
+    if (div_u[i] < filter) {
+      // div_u[i] = 0;
+      base_collection.insert(i);
+    } else div_u[i] = 0.5;
   }
 
-  // // for each point in base_collection
-  // // find the vertex with cloest divergence to it from its neighbors
-  // const double filter_2 = mu;
-  // const set<int> iterate_collection = base_collection;
-  // for (auto &&vert : iterate_collection) {
-  //   auto neigh = model.Neigh(vert);
-  //   for (auto &&neigh_edge : neigh) {
-  //     bool is_left = (model.Edge(neigh_edge.first).indexOfLeftVert == vert);
-  //     int neigh_vert;
-  //     if (is_left) {
-  //       neigh_vert = model.Edge(neigh_edge.first).indexOfRightVert;
-  //     } else {
-  //       neigh_vert = model.Edge(neigh_edge.first).indexOfLeftVert;
-  //     }
-  //     if (div_u[neigh_vert] < filter_2) {
-  //       base_collection.insert(neigh_vert);
-  //     }
-  //   }
-  // }
+  // if the degree of the vertex is 1 or 2
+  // save it as a end point
+  set<int> end_verts;
+  set<int> iterate_collection = base_collection;
+  for (auto &&base : iterate_collection) {
+    int degree = 0;
+    query_neighor_vertices(model, base, [&](int neigh_vert) -> void {
+      if (base_collection.find(neigh_vert) != base_collection.end()) {
+        degree++;
+      }
+    });
+    if (degree == 1) {
+      end_verts.insert(base);
+    } else if (degree == 0) {
+      // remove degree 0 vertices
+      // base_collection.erase(base);
+    }
+  }
 
-  // VectorXd vt = VectorXd::Zero(V.rows());
-  // for (auto &&ele : base_collection) {
-  //   vt[ele] = 1;
-  // }
+  cout << "end point num:" << end_verts.size() << endl;
+  cout << "base point num:" << base_collection.size() << endl;
 
-  // abandon sigle point condition
-  // for (auto vert : base_collection) {
-  //   auto neigh = model.Neigh(vert);
-  //   bool alone_in_neigh = true;
-  //   for (auto neigh_edge : neigh) {
-  //     bool is_left = (vert == model.Edge(neigh[0].first).indexOfLeftVert);
-  //     int adjacent_vert;
-  //     if (is_left) {
-  //       adjacent_vert = model.Edge(neigh_edge.first).indexOfRightVert;
-  //     } else {
-  //       adjacent_vert = model.Edge(neigh_edge.first).indexOfLeftVert;
-  //     }
-  //     auto adjacent_in_collection = base_collection.find(adjacent_vert);
-  //     if (adjacent_in_collection != base_collection.end()) {
-  //       alone_in_neigh = false;
-  //       break;
-  //     }
-  //   }
-  //   if (alone_in_neigh) div_u[vert] = 0.5;
-  // }
+  for (auto &&end_vert : end_verts) {
+    // span as the direction of the gradient until meets another base vertex
+    int cur = end_vert;
+    while (true) {
+      int min_u_neigh_vert = cur;
+      double min_u_neigh_val = u[cur];
+      query_neighor_vertices(model, cur, [&](int neigh_vert) -> void {
+        if (min_u_neigh_val > u[neigh_vert]) {
+          min_u_neigh_vert = neigh_vert;
+          min_u_neigh_val = u[neigh_vert];
+        }
+      });
+      if (min_u_neigh_vert == cur || (base_collection.find(min_u_neigh_vert) != base_collection.end())) break;
+      cur = min_u_neigh_vert;
+      div_u[cur] = 1;
+      base_collection.insert(cur);
+    }
+  }
 
   // write output model files
   fstream obj_out, mtl_out;
+  remove("divergence_method.obj");
+  remove("divergence_method.mtl");
   obj_out.open("divergence_method.obj", ios::app | ios::out);
   mtl_out.open("divergence_method.mtl", ios::app | ios::out);
   obj_out << "mtllib divergence_method.mtl\nusemtl Default\ng default\n";
@@ -280,6 +294,24 @@ int main(int argc, char *argv[]) {
   mtl_out.flush();
   obj_out.close();
   mtl_out.close();
+
+  MatrixXd BC;
+  barycenter(V, F, BC);
+  MatrixXd T = MatrixXd::Zero(BC.rows(), BC.cols());
+  for (int i = 0; i < F.rows(); ++i) {
+    T(i, 0) = g[i+0*F.rows()];
+    T(i, 1) = g[i+1*F.rows()];
+    T(i, 2) = g[i+2*F.rows()];
+  }
+  const double length = avg_edge_length(V, F)*0.5;
+
+  // visualize the data
+  opengl::glfw::Viewer viewer;
+  const RowVector3d color(255,0,0);
+  viewer.data().set_mesh(V, F);
+  viewer.data().add_edges(BC, BC+length*T, color);
+  viewer.data().set_data(div_u);
+  viewer.launch();
 
   return 0;
 }
