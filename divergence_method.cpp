@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <fstream>
 #include <vector>
+#include <queue>
 #include <map>
 #include <set>
 #include <functional>
@@ -225,7 +226,7 @@ int main(int argc, char *argv[]) {
   // filter the vertices through mean and divergence
   for (int i = 0; i < V.rows(); ++i) {
     if (div_u[i] < filter) {
-      // div_u[i] = 0;
+      div_u[i] = 0;
       base_collection.insert(i);
     } else div_u[i] = 0.5;
   }
@@ -236,8 +237,10 @@ int main(int argc, char *argv[]) {
   set<int> iterate_collection = base_collection;
   for (auto &&base : iterate_collection) {
     int degree = 0;
+    queue<int> neigh_in_set;
     query_neighor_vertices(model, base, [&](int neigh_vert) -> void {
       if (base_collection.find(neigh_vert) != base_collection.end()) {
+        neigh_in_set.push(neigh_vert);
         degree++;
       }
     });
@@ -245,31 +248,87 @@ int main(int argc, char *argv[]) {
       end_verts.insert(base);
     } else if (degree == 0) {
       // remove degree 0 vertices
-      // base_collection.erase(base);
+      cout << "erase vert due to zero degree:" << base << endl;
+      base_collection.erase(base);
+      // change the visual effect
+      div_u[base] = 0.5;
+    } else if (degree == 2) {
+      // query if the neighbors in set are in the same triangle
+      // if so, set it as an end_point
+      int neigh_vert_1 = neigh_in_set.front();
+      neigh_in_set.pop();
+      int neigh_vert_2 = neigh_in_set.front();
+      int f1 = model.Edge(model.GetEdgeIndexFromTwoVertices(base, neigh_vert_1)).indexOfFrontFace;
+      int f2 = model.Edge(model.GetEdgeIndexFromTwoVertices(base, neigh_vert_2)).indexOfFrontFace;
+      int f3 = model.Edge(model.GetEdgeIndexFromTwoVertices(neigh_vert_1, base)).indexOfFrontFace;
+      int f4 = model.Edge(model.GetEdgeIndexFromTwoVertices(neigh_vert_2, base)).indexOfFrontFace;
+      if ((f1 == f4) || (f2 == f3)) {
+        end_verts.insert(base);
+        cout << "insert degree two vert:" << base << endl;
+      }
     }
   }
 
   cout << "end point num:" << end_verts.size() << endl;
   cout << "base point num:" << base_collection.size() << endl;
 
+  // expand following the direction of the normalized gradient
+  // calculate the gradient for eqach edge from the end_points
   for (auto &&end_vert : end_verts) {
-    // span as the direction of the gradient until meets another base vertex
     int cur = end_vert;
     while (true) {
-      int min_u_neigh_vert = cur;
-      double min_u_neigh_val = u[cur];
-      query_neighor_vertices(model, cur, [&](int neigh_vert) -> void {
-        if (min_u_neigh_val > u[neigh_vert]) {
-          min_u_neigh_vert = neigh_vert;
-          min_u_neigh_val = u[neigh_vert];
+      auto &&cur_vert = model.Vert(cur);
+      double max_val = 0;
+      int max_val_vert_index = -1;
+      // process the neighobrs of vert cur
+      query_neighor_vertices(model, cur, [&](int neigh_vert_index) -> void {
+        // estimate the vector for the edge
+        auto &&neigh_vert = model.Vert(neigh_vert_index);
+        Vector3d edge_vec {neigh_vert.x-cur_vert.x,neigh_vert.y-cur_vert.y,neigh_vert.z-cur_vert.z};
+        // estimate the scalar value for the edge
+        int face_1 = model.Edge(model.GetEdgeIndexFromTwoVertices(cur, neigh_vert_index)).indexOfFrontFace;
+        int face_2 = model.Edge(model.GetEdgeIndexFromTwoVertices(neigh_vert_index, cur)).indexOfFrontFace;
+        Vector3d face_grad_1 {g[face_1], g[face_1+F.rows()], g[face_1+2*F.rows()]};
+        Vector3d face_grad_2 {g[face_2], g[face_2+F.rows()], g[face_2+2*F.rows()]};
+        const double new_val = edge_vec.dot(face_grad_1)+edge_vec.dot(face_grad_2);
+        if (new_val > max_val) {
+          max_val = new_val;
+          max_val_vert_index = neigh_vert_index;
         }
       });
-      if (min_u_neigh_vert == cur || (base_collection.find(min_u_neigh_vert) != base_collection.end())) break;
-      cur = min_u_neigh_vert;
-      div_u[cur] = 1;
-      base_collection.insert(cur);
+      // if the neighbor with the greatest value is in the base_collection, do nothing
+      // otherwise insert it into the set
+      cout << max_val << endl;
+      if (max_val_vert_index != -1) {
+        if (base_collection.find(max_val_vert_index) == base_collection.end()) {
+          cout << max_val << ":insert new vertex:" << max_val_vert_index << endl;
+          base_collection.insert(max_val_vert_index);
+          div_u[max_val_vert_index] = 1;
+          // move a step forward
+          cur = max_val_vert_index;
+        } else break;
+      } else break;
     }
   }
+
+  // for (auto &&end_vert : end_verts) {
+  //   // span as the direction of the gradient until meets another base vertex
+  //   int cur = end_vert;
+  //   while (true) {
+  //     int min_u_neigh_vert = cur;
+  //     double min_u_neigh_val = u[cur];
+  //     query_neighor_vertices(model, cur, [&](int neigh_vert) -> void {
+  //       if (min_u_neigh_val > u[neigh_vert]) {
+  //         min_u_neigh_vert = neigh_vert;
+  //         min_u_neigh_val = u[neigh_vert];
+  //       }
+  //     });
+  //     if (min_u_neigh_vert == cur || (base_collection.find(min_u_neigh_vert) != base_collection.end())) break;
+  //     cur = min_u_neigh_vert;
+  //     div_u[cur] = 1;
+  //     base_collection.insert(cur);
+  //   }
+  // }
 
   // write output model files
   fstream obj_out, mtl_out;
