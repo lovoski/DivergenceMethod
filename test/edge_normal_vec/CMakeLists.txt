@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 project(edge_normal_vec)
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 
 find_package(Eigen3 CONFIG REQUIRED NO_MODULE)
 file(GLOB SRC_FILES *.cpp)

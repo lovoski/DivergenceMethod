@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 project(gradient_viewer)
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 
 find_package(libigl CONFIG REQUIRED)
 include_directories(${libigl_INCLUDE_DIR})
