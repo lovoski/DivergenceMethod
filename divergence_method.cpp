@@ -5,6 +5,7 @@
 #include <queue>
 #include <map>
 #include <set>
+#include <filesystem>
 #include <functional>
 #include <string>
 #include <igl/grad.h>
@@ -24,6 +25,7 @@
 using namespace std;
 using namespace igl;
 using namespace Eigen;
+namespace fs = filesystem;
 
 MatrixXd V;
 MatrixXi F;
@@ -177,40 +179,71 @@ int main(int argc, char *argv[]) {
   // gradient operator
   grad(V, F, G);
 
-  cout << "start calculation" << endl;
+  string scalar_cache_file = string(argv[1])+string(".scalar.txt");
 
-  const double t = pow(avg_edge_length(V, F), 2);
-  VectorXd &&u = calculate_scalar_value(t, 0);
+  VectorXd u, g, div_u;
 
-  cout << "scalar value calculation finished" << endl;
-
-  VectorXd &&g = normalized_gradient(u);
+  // load cached scalar field if cache exists
+  if (fs::exists(scalar_cache_file)) {
+    cout << "using scalar cache:" << scalar_cache_file << endl;
+    fstream scalar_in;
+    scalar_in.open(scalar_cache_file, ios::in);
+    string line;
+    getline(scalar_in, line);
+    int lines_num = stoi(line), index = 0;
+    u.resize(lines_num);
+    while (getline(scalar_in, line)) {
+      u(index) = stod(line);
+      index++;
+    }
+    cout << "scalar cache loaded" << endl;
+    scalar_in.close();
+  } else {
+    cout << "start computing saclar field" << endl;
+    const double t = pow(avg_edge_length(V, F), 2);
+    u = calculate_scalar_value(t, 0);
+    cout << "scalar field calculation finished" << endl;
+    fstream scalar_out;
+    scalar_out.open(scalar_cache_file, ios::app | ios::out);
+    scalar_out << u.rows() << "\n";
+    for (int i = 0; i < u.rows(); ++i) {
+      scalar_out << u(i) << "\n";
+    }
+    scalar_out.flush();
+    scalar_out.close();
+    cout << "scalar cache generated" << endl;
+  }
+  g = normalized_gradient(u);
 
   cout << "gradient normalization finished" << endl;
 
   Model3D::CRichModel model(argv[1]);
   model.LoadModel();
-  VectorXd &&div_u = calculate_divergence(g, model);
+
+  div_u = calculate_divergence(g, model);
 
   cout << "divergence calculation finished" << endl;
 
+  // vertex texture coordinate
+  VectorXd vt = div_u;
+
   // unify the divergence
-  double min = div_u[0], max = div_u[0];
-  for (int i = 0; i < div_u.rows(); ++i) {
-    min = min < div_u[i]?min:div_u[i];
-    max = max > div_u[i]?max:div_u[i];
+  double min = vt[0], max = vt[0];
+  for (int i = 0; i < vt.rows(); ++i) {
+    min = min < vt[i]?min:vt[i];
+    max = max > vt[i]?max:vt[i];
   }
   cout << "max:" << max << "\nmin:" << min << endl;
   double gap = abs(min), divider = max+abs(min);
-  for (int i = 0; i < div_u.rows(); ++i) {
-    div_u[i] += gap;
-    div_u[i] /= divider;
+  for (int i = 0; i < vt.rows(); ++i) {
+    vt[i] += gap;
+    vt[i] /= divider;
   }
 
   // write div_u for data analysis
   fstream data_out;
-  remove("data.txt");
-  data_out.open("data.txt", ios::app | ios::out);
+  fs::remove("div_u.data.txt");
+  data_out.open("div_u.data.txt", ios::app | ios::out);
   for (int i = 0; i < V.rows(); ++i) {
     data_out << div_u[i] << "\n";
   }
@@ -226,9 +259,9 @@ int main(int argc, char *argv[]) {
   // filter the vertices through mean and divergence
   for (int i = 0; i < V.rows(); ++i) {
     if (div_u[i] < filter) {
-      div_u[i] = 0;
+      vt[i] = 0;
       base_collection.insert(i);
-    } else div_u[i] = 0.5;
+    } else vt[i] = 0.5;
   }
 
   // if the degree of the vertex is 1 or 2
@@ -248,10 +281,10 @@ int main(int argc, char *argv[]) {
       end_verts.insert(base);
     } else if (degree == 0) {
       // remove degree 0 vertices
-      cout << "erase vert due to zero degree:" << base << endl;
+      // cout << "erase vert due to zero degree:" << base << endl;
       base_collection.erase(base);
       // change the visual effect
-      div_u[base] = 0.5;
+      vt[base] = 0.5;
     } else if (degree == 2) {
       // query if the neighbors in set are in the same triangle
       // if so, set it as an end_point
@@ -264,7 +297,7 @@ int main(int argc, char *argv[]) {
       int f4 = model.Edge(model.GetEdgeIndexFromTwoVertices(neigh_vert_2, base)).indexOfFrontFace;
       if ((f1 == f4) || (f2 == f3)) {
         end_verts.insert(base);
-        cout << "insert degree two vert:" << base << endl;
+        // cout << "insert degree two vert:" << base << endl;
       }
     }
   }
@@ -298,12 +331,12 @@ int main(int argc, char *argv[]) {
       });
       // if the neighbor with the greatest value is in the base_collection, do nothing
       // otherwise insert it into the set
-      cout << max_val << endl;
+      // cout << max_val << endl;
       if (max_val_vert_index != -1) {
         if (base_collection.find(max_val_vert_index) == base_collection.end()) {
-          cout << max_val << ":insert new vertex:" << max_val_vert_index << endl;
+          // cout << max_val << ":insert new vertex:" << max_val_vert_index << endl;
           base_collection.insert(max_val_vert_index);
-          div_u[max_val_vert_index] = 1;
+          vt[max_val_vert_index] = 1;
           // move a step forward
           cur = max_val_vert_index;
         } else break;
@@ -311,37 +344,21 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  // for (auto &&end_vert : end_verts) {
-  //   // span as the direction of the gradient until meets another base vertex
-  //   int cur = end_vert;
-  //   while (true) {
-  //     int min_u_neigh_vert = cur;
-  //     double min_u_neigh_val = u[cur];
-  //     query_neighor_vertices(model, cur, [&](int neigh_vert) -> void {
-  //       if (min_u_neigh_val > u[neigh_vert]) {
-  //         min_u_neigh_vert = neigh_vert;
-  //         min_u_neigh_val = u[neigh_vert];
-  //       }
-  //     });
-  //     if (min_u_neigh_vert == cur || (base_collection.find(min_u_neigh_vert) != base_collection.end())) break;
-  //     cur = min_u_neigh_vert;
-  //     div_u[cur] = 1;
-  //     base_collection.insert(cur);
-  //   }
-  // }
+  string model_objfile_name = string(argv[1])+string(".divergence_method.obj");
+  string model_mtlfile_name = string(argv[1])+string(".divergence_method.mtl");
 
   // write output model files
   fstream obj_out, mtl_out;
-  remove("divergence_method.obj");
-  remove("divergence_method.mtl");
-  obj_out.open("divergence_method.obj", ios::app | ios::out);
-  mtl_out.open("divergence_method.mtl", ios::app | ios::out);
-  obj_out << "mtllib divergence_method.mtl\nusemtl Default\ng default\n";
+  fs::remove(model_objfile_name);
+  fs::remove(model_mtlfile_name);
+  obj_out.open(model_objfile_name, ios::app | ios::out);
+  mtl_out.open(model_mtlfile_name, ios::app | ios::out);
+  obj_out << "mtllib " << model_mtlfile_name << "\nusemtl Default\ng default\n";
   for (int i = 0;i < V.rows();++i) {
     obj_out << "v " << V(i, 0) << " " << V(i, 1) << " " << V(i, 2) << "\n";
   }
   for (int i = 0;i < V.rows();++i) {
-    obj_out << "vt " << div_u(i) << " 0\n";
+    obj_out << "vt " << vt(i) << " 0\n";
   }
   for (int i = 0;i < F.rows();++i) {
     obj_out <<"f "<<F(i, 0)+1<<"/"<<F(i, 0)+1<<" "<<F(i, 1)+1<<"/"<<F(i, 1)+1<<" "<<F(i, 2)+1<<"/"<<F(i, 2)+1<<"\n";
@@ -369,7 +386,7 @@ int main(int argc, char *argv[]) {
   const RowVector3d color(255,0,0);
   viewer.data().set_mesh(V, F);
   viewer.data().add_edges(BC, BC+length*T, color);
-  viewer.data().set_data(div_u);
+  viewer.data().set_data(vt);
   viewer.launch();
 
   return 0;
